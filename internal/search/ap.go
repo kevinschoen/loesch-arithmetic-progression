@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kevinschoen/loesch-arithmetic-progression/internal/loesch"
@@ -24,18 +25,25 @@ func IsAP(start, step int64, terms int) bool {
 	return isAP(start, step, terms, nil)
 }
 
+// isAP checks the AP membership, testing from both ends toward the middle so
+// that failures in the interior (statistically harder) are caught sooner.
 func isAP(start, step int64, terms int, set *loesch.Set) bool {
-	for k := range terms {
-		n := start + int64(k)*step
-		if set != nil {
-			if !set.Contains(n) {
-				return false
+	lo, hi := 0, terms-1
+	for lo <= hi {
+		for _, k := range [2]int{lo, hi} {
+			n := start + int64(k)*step
+			if set != nil {
+				if !set.Contains(n) {
+					return false
+				}
+			} else {
+				if !loesch.IsLoesch(n) {
+					return false
+				}
 			}
-			continue
 		}
-		if !loesch.IsLoesch(n) {
-			return false
-		}
+		lo++
+		hi--
 	}
 	return true
 }
@@ -65,114 +73,90 @@ func findMinEndAP(terms int, minEnd, maxEnd int64, workers int, progress func(en
 	set := loesch.NewSet(maxEnd)
 
 	startTime := time.Now()
-	lastReport := startTime
 	span := int64(terms - 1)
 
-	for end := minEnd; end <= maxEnd; end++ {
-		if progress != nil && time.Since(lastReport) >= time.Second {
-			progress(end, time.Since(startTime))
-			lastReport = time.Now()
-		}
-
-		if !set.Contains(end) {
-			continue
-		}
-
-		maxStep := end / span
-		if maxStep == 0 {
-			continue
-		}
-
-		if result, ok := searchSteps(end, span, terms, maxStep, set, workers); ok {
-			return result, nil
-		}
-	}
-
-	return Result{}, fmt.Errorf("%w (max end %d)", ErrNotFound, maxEnd)
-}
-
-func searchSteps(end, span int64, terms int, maxStep int64, set *loesch.Set, workers int) (Result, bool) {
-	if maxStep <= 0 {
-		return Result{}, false
-	}
-
-	// Collect only the candidate steps where start = end - span*step is
-	// itself Loeschian. Iterate backwards through Loeschian numbers below
-	// end and derive step from each, skipping non-integer steps.
-	candidates := set.Below(end)
-	validSteps := make([]int64, 0, len(candidates))
-	for i := len(candidates) - 1; i >= 0; i-- {
-		diff := end - candidates[i]
-		if diff%span != 0 {
-			continue
-		}
-		step := diff / span
-		if step > maxStep {
-			continue
-		}
-		validSteps = append(validSteps, step)
-	}
-
-	if len(validSteps) == 0 {
-		return Result{}, false
-	}
+	// Distribute end values across workers. Each worker owns every
+	// (workers)-th integer starting at (minEnd + workerID). Because we want
+	// the globally minimal end, we interleave rather than block-partition:
+	// worker 0 checks end=minEnd, minEnd+workers, …
+	// worker 1 checks end=minEnd+1, minEnd+workers+1, …
+	// …so all workers advance in lock-step and the first result found across
+	// all workers is guaranteed to have the smallest possible end.
 
 	type hit struct {
-		start int64
-		step  int64
+		result Result
+		end    int64
 	}
 
-	jobs := make(chan int64, workers*2)
-	var wg sync.WaitGroup
-	var once sync.Once
-	var found hit
-	done := make(chan struct{})
+	var (
+		wg      sync.WaitGroup
+		mu      sync.Mutex
+		best    hit
+		hasBest bool
+		// stopAt is the smallest end found so far; workers skip values >= stopAt.
+		stopAt atomic.Int64
+	)
+	stopAt.Store(maxEnd + 1)
 
-	worker := func() {
-		defer wg.Done()
-		for step := range jobs {
-			select {
-			case <-done:
-				return
-			default:
-			}
-
-			start := end - span*step
-			if isAP(start, step, terms, set) {
-				once.Do(func() {
-					found = hit{start: start, step: step}
-					close(done)
-				})
-				return
-			}
-		}
-	}
+	// progress reporting: last end seen across all workers
+	var lastReported atomic.Int64
+	lastReported.Store(minEnd)
 
 	wg.Add(workers)
-	for range workers {
-		go worker()
-	}
+	for w := 0; w < workers; w++ {
+		w := w
+		go func() {
+			defer wg.Done()
+			lastReport := time.Now()
+			for end := minEnd + int64(w); end <= maxEnd; end += int64(workers) {
+				if end >= stopAt.Load() {
+					return
+				}
 
-loop:
-	for _, step := range validSteps {
-		select {
-		case <-done:
-			break loop
-		default:
-			jobs <- step
-		}
+				if progress != nil && w == 0 && time.Since(lastReport) >= time.Second {
+					progress(end, time.Since(startTime))
+					lastReport = time.Now()
+				}
+
+				if !set.Contains(end) {
+					continue
+				}
+				if end < span {
+					continue
+				}
+
+				// Try all steps d such that start = end - span*d is Loeschian.
+				// Walk start downward in steps of d=1,2,… but only visit values
+				// where start itself is Loeschian — O(end/span) per end.
+				for start := end - span; start >= 0; start -= span {
+					if end >= stopAt.Load() {
+						break
+					}
+					if !set.Contains(start) {
+						continue
+					}
+					step := (end - start) / span
+					if isAP(start, step, terms, set) {
+						mu.Lock()
+						if !hasBest || end < best.end {
+							best = hit{
+								result: Result{Start: start, Step: step, End: end, Terms: terms},
+								end:    end,
+							}
+							hasBest = true
+							stopAt.Store(end) // no need to check any end >= this
+						}
+						mu.Unlock()
+						break
+					}
+				}
+			}
+		}()
 	}
-	close(jobs)
 	wg.Wait()
 
-	if found.step == 0 {
-		return Result{}, false
+	if !hasBest {
+		return Result{}, fmt.Errorf("%w (max end %d)", ErrNotFound, maxEnd)
 	}
-
-	return Result{
-		Start: found.start,
-		Step:  found.step,
-		End:   end,
-		Terms: terms,
-	}, true
+	return best.result, nil
 }
