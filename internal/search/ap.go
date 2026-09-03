@@ -113,9 +113,6 @@ func searchSteps(end, span int64, terms int, maxStep int64, set *loesch.Set, wor
 			}
 
 			start := end - span*step
-			if start < 0 || !set.Contains(start) {
-				continue
-			}
 			if isAP(start, step, terms, set) {
 				once.Do(func() {
 					found = hit{start: start, step: step}
@@ -137,7 +134,10 @@ loop:
 		case <-done:
 			break loop
 		default:
-			jobs <- step
+			start := end - span*step
+			if set.Contains(start) {
+				jobs <- step
+			}
 		}
 	}
 	close(jobs)
