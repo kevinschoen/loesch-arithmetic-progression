@@ -12,7 +12,7 @@ func TestExampleAP(t *testing.T) {
 }
 
 func TestFindMinEndAPFourTerms(t *testing.T) {
-	got, err := FindMinEndAP(4, 100, nil)
+	got, err := FindMinEndAP(4, 0, 100, nil)
 	if err != nil {
 		t.Fatalf("FindMinEndAP(4): %v", err)
 	}
@@ -22,7 +22,7 @@ func TestFindMinEndAPFourTerms(t *testing.T) {
 }
 
 func TestFindMinEndAPNotFound(t *testing.T) {
-	_, err := FindMinEndAP(35, 0, nil)
+	_, err := FindMinEndAP(35, 0, 0, nil)
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}

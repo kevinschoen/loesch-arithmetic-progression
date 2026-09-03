@@ -13,6 +13,7 @@ import (
 
 func main() {
 	terms := flag.Int("terms", 35, "number of terms in the arithmetic progression")
+	minEnd := flag.Int64("min-end", 0, "start searching from this end value (resume a previous run)")
 	maxEnd := flag.Int64("max-end", 50_000_000, "maximum end value to search")
 	verbose := flag.Bool("verbose", false, "print progress while searching")
 	flag.Parse()
@@ -24,7 +25,7 @@ func main() {
 		}
 	}
 
-	result, err := search.FindMinEndAP(*terms, *maxEnd, progress)
+	result, err := search.FindMinEndAP(*terms, *minEnd, *maxEnd, progress)
 	if err != nil {
 		if errors.Is(err, search.ErrNotFound) {
 			log.Fatalf("no %d-term progression found with end <= %d; try increasing -max-end", *terms, *maxEnd)

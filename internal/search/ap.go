@@ -41,18 +41,22 @@ func isAP(start, step int64, terms int, set *loesch.Set) bool {
 }
 
 // FindMinEndAP finds an arithmetic progression of terms Loesch numbers whose
-// last term is as small as possible. Search scans end values in ascending order.
-func FindMinEndAP(terms int, maxEnd int64, progress func(end int64, elapsed time.Duration)) (Result, error) {
+// last term is as small as possible. Search scans end values in ascending order,
+// starting from minEnd. Pass 0 to search from the beginning.
+func FindMinEndAP(terms int, minEnd, maxEnd int64, progress func(end int64, elapsed time.Duration)) (Result, error) {
 	workers := runtime.GOMAXPROCS(0)
 	if workers < 1 {
 		workers = 1
 	}
-	return findMinEndAP(terms, maxEnd, workers, progress)
+	return findMinEndAP(terms, minEnd, maxEnd, workers, progress)
 }
 
-func findMinEndAP(terms int, maxEnd int64, workers int, progress func(end int64, elapsed time.Duration)) (Result, error) {
+func findMinEndAP(terms int, minEnd, maxEnd int64, workers int, progress func(end int64, elapsed time.Duration)) (Result, error) {
 	if terms < 1 {
 		return Result{}, fmt.Errorf("terms must be positive, got %d", terms)
+	}
+	if minEnd < 0 {
+		return Result{}, fmt.Errorf("minEnd must be non-negative, got %d", minEnd)
 	}
 	if maxEnd < 0 {
 		return Result{}, fmt.Errorf("maxEnd must be non-negative, got %d", maxEnd)
@@ -64,7 +68,7 @@ func findMinEndAP(terms int, maxEnd int64, workers int, progress func(end int64,
 	lastReport := startTime
 	span := int64(terms - 1)
 
-	for end := int64(0); end <= maxEnd; end++ {
+	for end := minEnd; end <= maxEnd; end++ {
 		if progress != nil && time.Since(lastReport) >= time.Second {
 			progress(end, time.Since(startTime))
 			lastReport = time.Now()

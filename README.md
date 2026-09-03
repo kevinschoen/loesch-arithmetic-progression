@@ -27,29 +27,27 @@ Example (4 terms): `1, 7, 13, 19` → start=`1`, step=`6`.
 
 ```bash
 go test ./...
-go run ./cmd/solver -terms 35 -verbose
+go run ./cmd/solver -terms 27 -verbose
 ```
 
 ### Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-terms` | `35` | Number of AP terms |
+| `-terms` | `27` | Number of AP terms |
+| `-min-end` | `0` | Start searching from this end value (resume a previous run) |
 | `-max-end` | `50000000` | Maximum last term to search |
 | `-verbose` | `false` | Print search progress to stderr |
 
 ### Example output
 
 ```
-start=...
-step=...
-end=...
-terms=35
+start=270961
+step=56100
+end=1729561
+terms=27
 ```
 
-## Submit
-
-Send your `(start, step)` to `ponder@il.ibm.com`.
 
 ## License
 
