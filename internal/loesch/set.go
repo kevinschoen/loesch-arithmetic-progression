@@ -1,9 +1,12 @@
 package loesch
 
+import "sort"
+
 // Set is a fast membership set for Loeschian numbers up to max.
 type Set struct {
-	max   int64
+	max    int64
 	loesch []bool
+	sorted []int64 // all Loeschian numbers in ascending order
 }
 
 // NewSet precomputes all Loeschian numbers from 0 through max inclusive.
@@ -27,10 +30,23 @@ func NewSet(max int64) *Set {
 			s.loesch[v] = true
 		}
 	}
+	// Build sorted slice from the bitmap.
+	for n := int64(0); n <= max; n++ {
+		if s.loesch[n] {
+			s.sorted = append(s.sorted, n)
+		}
+	}
 	return s
 }
 
 // Contains reports whether n is in the precomputed Loeschian set.
 func (s *Set) Contains(n int64) bool {
 	return n >= 0 && n <= s.max && s.loesch[n]
+}
+
+// Below returns a slice of all Loeschian numbers strictly less than n,
+// in ascending order.
+func (s *Set) Below(n int64) []int64 {
+	i := sort.Search(len(s.sorted), func(i int) bool { return s.sorted[i] >= n })
+	return s.sorted[:i]
 }

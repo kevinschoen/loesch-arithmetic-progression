@@ -92,6 +92,27 @@ func searchSteps(end, span int64, terms int, maxStep int64, set *loesch.Set, wor
 		return Result{}, false
 	}
 
+	// Collect only the candidate steps where start = end - span*step is
+	// itself Loeschian. Iterate backwards through Loeschian numbers below
+	// end and derive step from each, skipping non-integer steps.
+	candidates := set.Below(end)
+	validSteps := make([]int64, 0, len(candidates))
+	for i := len(candidates) - 1; i >= 0; i-- {
+		diff := end - candidates[i]
+		if diff%span != 0 {
+			continue
+		}
+		step := diff / span
+		if step > maxStep {
+			continue
+		}
+		validSteps = append(validSteps, step)
+	}
+
+	if len(validSteps) == 0 {
+		return Result{}, false
+	}
+
 	type hit struct {
 		start int64
 		step  int64
@@ -129,15 +150,12 @@ func searchSteps(end, span int64, terms int, maxStep int64, set *loesch.Set, wor
 	}
 
 loop:
-	for step := int64(1); step <= maxStep; step++ {
+	for _, step := range validSteps {
 		select {
 		case <-done:
 			break loop
 		default:
-			start := end - span*step
-			if set.Contains(start) {
-				jobs <- step
-			}
+			jobs <- step
 		}
 	}
 	close(jobs)
