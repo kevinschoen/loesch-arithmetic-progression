@@ -20,6 +20,7 @@ func main() {
 
 	var progress func(int64, time.Duration)
 	if *verbose {
+		fmt.Fprintf(os.Stderr, "building sieve up to %d...\n", *maxEnd)
 		progress = func(end int64, elapsed time.Duration) {
 			fmt.Fprintf(os.Stderr, "searching end=%d elapsed=%s\n", end, elapsed.Round(time.Millisecond))
 		}

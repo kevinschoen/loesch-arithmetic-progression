@@ -98,25 +98,48 @@ func findMinEndAP(terms int, minEnd, maxEnd int64, workers int, progress func(en
 	)
 	stopAt.Store(maxEnd + 1)
 
-	// progress reporting: last end seen across all workers
-	var lastReported atomic.Int64
-	lastReported.Store(minEnd)
+	// workerPos[w] holds the current end value for worker w.
+	// The ticker reports the minimum across all workers — the true search frontier.
+	workerPos := make([]atomic.Int64, workers)
+	for w := 0; w < workers; w++ {
+		workerPos[w].Store(minEnd + int64(w))
+	}
+
+	// Drive progress reports from a dedicated ticker goroutine so they are
+	// never blocked by tight worker loops.
+	done := make(chan struct{})
+	if progress != nil {
+		go func() {
+			ticker := time.NewTicker(time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-done:
+					return
+				case <-ticker.C:
+					min := workerPos[0].Load()
+					for w := 1; w < workers; w++ {
+						if v := workerPos[w].Load(); v < min {
+							min = v
+						}
+					}
+					progress(min, time.Since(startTime))
+				}
+			}
+		}()
+	}
 
 	wg.Add(workers)
 	for w := 0; w < workers; w++ {
 		w := w
 		go func() {
 			defer wg.Done()
-			lastReport := time.Now()
 			for end := minEnd + int64(w); end <= maxEnd; end += int64(workers) {
 				if end >= stopAt.Load() {
 					return
 				}
 
-				if progress != nil && w == 0 && time.Since(lastReport) >= time.Second {
-					progress(end, time.Since(startTime))
-					lastReport = time.Now()
-				}
+				workerPos[w].Store(end)
 
 				if !set.Contains(end) {
 					continue
@@ -154,6 +177,7 @@ func findMinEndAP(terms int, minEnd, maxEnd int64, workers int, progress func(en
 		}()
 	}
 	wg.Wait()
+	close(done)
 
 	if !hasBest {
 		return Result{}, fmt.Errorf("%w (max end %d)", ErrNotFound, maxEnd)
