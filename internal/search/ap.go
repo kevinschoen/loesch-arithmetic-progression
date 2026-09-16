@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -70,10 +71,19 @@ func findMinEndAP(terms int, minEnd, maxEnd int64, workers int, progress func(en
 		return Result{}, fmt.Errorf("maxEnd must be non-negative, got %d", maxEnd)
 	}
 
-	set := loesch.NewSet(maxEnd)
-
 	startTime := time.Now()
 	span := int64(terms - 1)
+
+	// Compute stride for bucketing
+	stepStride := int64(1)
+	if terms >= 4 {
+		stepStride = 6
+	} else if terms >= 3 {
+		stepStride = 3
+	}
+	startStride := span * stepStride
+
+	set := loesch.NewSet(maxEnd, startStride)
 
 	// Distribute end values across workers. Each worker owns every
 	// (workers)-th integer starting at (minEnd + workerID). Because we want
@@ -148,16 +158,19 @@ func findMinEndAP(terms int, minEnd, maxEnd int64, workers int, progress func(en
 					continue
 				}
 
-				// Try all steps d such that start = end - span*d is Loeschian.
-				// Walk start downward in steps of d=1,2,… but only visit values
-				// where start itself is Loeschian — O(end/span) per end.
-				for start := end - span; start >= 0; start -= span {
+				// Use bucketed approach: find all Loeschian starts with the same
+				// residue modulo startStride as end. Binary search within the bucket
+				// to avoid checking values >= end.
+				residue := end % startStride
+				bucket := set.Buckets[residue]
+				// Find insertion point for end in the sorted bucket
+				idx, _ := slices.BinarySearch(bucket, end)
+				// Iterate backward from idx-1 (all starts < end in this residue class)
+				for i := idx - 1; i >= 0; i-- {
 					if end >= stopAt.Load() {
 						break
 					}
-					if !set.Contains(start) {
-						continue
-					}
+					start := bucket[i]
 					step := (end - start) / span
 					if isAP(start, step, terms, set) {
 						mu.Lock()
