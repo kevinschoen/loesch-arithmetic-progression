@@ -15,26 +15,26 @@ Example (4 terms): `1, 7, 13, 19` → start=`1`, step=`6`.
 ## Approach
 
 1. **Membership test** — A number is Loeschian iff every prime `p ≡ 2 (mod 3)` appears with an even exponent in its factorization ([OEIS A003136](https://oeis.org/A003136)).
-2. **Precomputed set** — Build a lookup table of Loesch numbers up to `-max-end` for O(1) checks.
-3. **Minimal-end search** — Scan `end = 0, 1, 2, …` in ascending order. For each Loeschian `end`, try all step sizes `d` with `start = end − 34·d ≥ 0`. Return the first valid progression (guaranteed optimal).
-4. **Parallelism** — Step candidates for each `end` are checked in parallel across CPU cores.
+2. **Precomputed set with bucketing** — Build a lookup table of Loesch numbers up to `-max-end` for O(1) checks. Organize numbers into residue-class buckets to enable efficient iteration through only valid candidates.
+3. **Minimal-end search** — Scan `end = 0, 1, 2, …` in ascending order. For each Loeschian `end`, enumerate only candidate starts in the matching residue class (which must satisfy `end − start ≡ 0 (mod span·stepStride)`). For 35-term progressions, `stepStride = 6`, reducing the candidate set by ~98%. Return the first valid progression (guaranteed optimal).
+4. **Parallelism** — Each `end` value is distributed across CPU cores via interleaved work assignment, guaranteeing minimal result.
 
 ## Requirements
 
-- Go 1.21+
+- Go 1.21+ (tested on 1.27.1)
 
 ## Run
 
 ```bash
 go test ./...
-go run ./cmd/solver -terms 27 -verbose
+go run ./cmd/solver -verbose
 ```
 
 ### Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-terms` | `27` | Number of AP terms |
+| `-terms` | `35` | Number of AP terms |
 | `-min-end` | `0` | Start searching from this end value (resume a previous run) |
 | `-max-end` | `50000000` | Maximum last term to search |
 | `-verbose` | `false` | Print search progress to stderr |
